@@ -4,6 +4,8 @@ import time
 import httpx
 import jwt  # PyJWT
 
+from review import prepare_review
+
 APP_ID = os.environ["GITHUB_APP_ID"]
 PRIVATE_KEY = os.environ["GITHUB_PRIVATE_KEY"].replace("\\n", "\n")
 API = "https://api.github.com"
@@ -59,16 +61,21 @@ def _post_summary(token: str, repo: str, pr_number: int, body: str) -> None:
 def review_pull_request(job: dict) -> None:
     token = _installation_token(job["installation_id"])
     diff = _fetch_diff(token, job["repo_full_name"], job["pr_number"])
+    preparation = prepare_review(diff)
 
-    # TODO (week 2): chunk the diff by file, call the LLM agent, filter low-confidence
-    # comments, and post inline review comments instead of this placeholder.
-    lines_changed = sum(
-        1 for line in diff.splitlines() if line.startswith(("+", "-"))
-        and not line.startswith(("+++", "---"))
-    )
+    summary = [
+        "ReviewBot analyzed this PR:",
+        f"- {len(preparation.reviewable_files)} reviewable files",
+        f"- {len(preparation.skipped_files)} skipped files",
+        f"- {preparation.hunk_count} hunks",
+        f"- {preparation.added_reviewable_lines} added reviewable lines",
+    ]
+    if preparation.budget_exhausted:
+        summary.append("- A review preparation budget was reached")
+    summary.extend(("", "AI review is not enabled yet."))
     _post_summary(
         token,
         job["repo_full_name"],
         job["pr_number"],
-        f"reviewbot received this PR ({lines_changed} changed lines). Review coming soon.",
+        "\n".join(summary),
     )

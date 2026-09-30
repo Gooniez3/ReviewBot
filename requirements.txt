@@ -4,3 +4,4 @@ redis
 rq>=2.2
 httpx
 PyJWT[crypto]
+pydantic>=2
