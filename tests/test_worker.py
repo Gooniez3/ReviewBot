@@ -6,6 +6,7 @@ os.environ.setdefault("GITHUB_APP_ID", "123456")
 os.environ.setdefault("GITHUB_PRIVATE_KEY", "test-key")
 
 import worker
+from review.providers import FakeReviewProvider
 
 
 DIFF = """diff --git a/app.py b/app.py
@@ -41,7 +42,61 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("- 1 skipped files", body)
         self.assertIn("- 1 hunks", body)
         self.assertIn("- 1 added reviewable lines", body)
-        self.assertIn("AI review is not enabled yet.", body)
+        self.assertIn("- 1 candidate findings", body)
+        self.assertIn("- 1 accepted findings", body)
+        self.assertIn("- 0 rejected findings", body)
+        self.assertIn("AI findings are currently running in dry-run mode.", body)
+        self.assertIn("No inline review comments were posted.", body)
+        self.assertNotIn("Dry-run fixture: synthetic finding", body)
+
+    def test_provider_failure_still_posts_safe_dry_run_summary(self):
+        class RaisingProvider:
+            name = "raising-provider"
+            model_name = None
+
+            def review(self, review_input):
+                raise RuntimeError("secret response text")
+
+        job = {
+            "installation_id": 9,
+            "repo_full_name": "owner/repo",
+            "pr_number": 7,
+            "head_sha": "abc",
+        }
+        with (
+            patch.object(worker, "_installation_token", return_value="token"),
+            patch.object(worker, "_fetch_diff", return_value=DIFF),
+            patch.object(worker, "_review_provider", return_value=RaisingProvider()),
+            patch.object(worker, "_post_summary") as post,
+        ):
+            worker.review_pull_request(job)
+
+        body = post.call_args.args[3]
+        self.assertIn("- 0 candidate findings", body)
+        self.assertIn("- 0 accepted findings", body)
+        self.assertIn("Provider status: unavailable", body)
+        self.assertNotIn("secret response text", body)
+
+    def test_worker_can_use_configured_fake_provider(self):
+        job = {
+            "installation_id": 9,
+            "repo_full_name": "owner/repo",
+            "pr_number": 7,
+            "head_sha": "abc",
+        }
+        with (
+            patch.object(worker, "_installation_token", return_value="token"),
+            patch.object(worker, "_fetch_diff", return_value=DIFF),
+            patch.object(
+                worker,
+                "_review_provider",
+                return_value=FakeReviewProvider(candidates=()),
+            ),
+            patch.object(worker, "_post_summary") as post,
+        ):
+            worker.review_pull_request(job)
+
+        self.assertIn("- 0 candidate findings", post.call_args.args[3])
 
     def test_fetch_diff_keeps_api_version_and_diff_accept_headers(self):
         response = Mock(text=DIFF)

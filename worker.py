@@ -4,7 +4,8 @@ import time
 import httpx
 import jwt  # PyJWT
 
-from review import prepare_review
+from review import prepare_review, run_dry_review
+from review.providers import FakeReviewProvider, ReviewProvider
 
 APP_ID = os.environ["GITHUB_APP_ID"]
 PRIVATE_KEY = os.environ["GITHUB_PRIVATE_KEY"].replace("\\n", "\n")
@@ -58,10 +59,16 @@ def _post_summary(token: str, repo: str, pr_number: int, body: str) -> None:
     r.raise_for_status()
 
 
+def _review_provider() -> ReviewProvider:
+    """Return the local-only provider used by the Phase 2 dry run."""
+    return FakeReviewProvider()
+
+
 def review_pull_request(job: dict) -> None:
     token = _installation_token(job["installation_id"])
     diff = _fetch_diff(token, job["repo_full_name"], job["pr_number"])
     preparation = prepare_review(diff)
+    dry_run = run_dry_review(preparation, _review_provider())
 
     summary = [
         "ReviewBot analyzed this PR:",
@@ -69,10 +76,21 @@ def review_pull_request(job: dict) -> None:
         f"- {len(preparation.skipped_files)} skipped files",
         f"- {preparation.hunk_count} hunks",
         f"- {preparation.added_reviewable_lines} added reviewable lines",
+        f"- {len(dry_run.candidates)} candidate findings",
+        f"- {len(dry_run.validation.accepted)} accepted findings",
+        f"- {len(dry_run.validation.rejected)} rejected findings",
     ]
     if preparation.budget_exhausted:
         summary.append("- A review preparation budget was reached")
-    summary.extend(("", "AI review is not enabled yet."))
+    if not dry_run.provider_available:
+        summary.append("- Provider status: unavailable; review continued without findings")
+    summary.extend(
+        (
+            "",
+            "AI findings are currently running in dry-run mode.",
+            "No inline review comments were posted.",
+        )
+    )
     _post_summary(
         token,
         job["repo_full_name"],
