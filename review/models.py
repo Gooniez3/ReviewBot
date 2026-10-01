@@ -186,3 +186,31 @@ class ReviewPreparation(StrictModel):
     added_reviewable_lines: int = Field(default=0, ge=0)
     budget_exhausted: bool = False
     budget_reasons: tuple[str, ...] = ()
+
+
+class ProviderReviewInput(StrictModel):
+    """Deterministic, GitHub-agnostic input permitted to cross into a provider."""
+
+    reviewable_files: tuple[ChangedFile, ...] = ()
+    chunks: tuple[ReviewChunk, ...] = ()
+
+
+class ProviderResult(StrictModel):
+    """Strict domain candidates returned by a provider adapter."""
+
+    candidates: tuple[FindingCandidate, ...] = ()
+    errors: tuple[str, ...] = ()
+
+
+class ProviderPolicy(StrictModel):
+    max_candidates: int = Field(default=50, ge=1)
+    max_accepted_findings: int = Field(default=20, ge=1)
+
+
+class DryRunReview(StrictModel):
+    provider_name: str = Field(min_length=1, max_length=100)
+    model_name: str | None = Field(default=None, max_length=200)
+    provider_available: bool = True
+    candidates: tuple[FindingCandidate, ...] = ()
+    validation: FindingValidation
+    provider_errors: tuple[str, ...] = ()

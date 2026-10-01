@@ -2,8 +2,8 @@
 
 ReviewBot is a GitHub App that accepts signed pull-request webhooks, queues work
 in Redis/RQ, fetches the PR's unified diff through the GitHub API, prepares that
-diff deterministically, and posts a summary comment. AI review and inline review
-comments are intentionally not enabled yet.
+diff deterministically, and runs a local fake review provider. It posts aggregate
+dry-run counts only; finding contents and inline review comments are not posted.
 
 ## Current architecture
 
@@ -15,13 +15,21 @@ GitHub pull request
   -> worker.review_pull_request (worker.py)
   -> GitHub API diff fetch
   -> deterministic review preparation (review/)
+  -> FakeReviewProvider
+  -> deterministic finding validation and caps
   -> GitHub issue comment
 ```
 
-The current milestone parses unified diffs, maps exact line coordinates, filters
-non-reviewable files, applies explicit input budgets, prepares chunks on file and
-hunk boundaries, and validates synthetic finding candidates. It does not call an
-AI provider or create GitHub inline review payloads.
+The current milestone adds a provider contract and deterministic dry-run
+orchestration. Phase 1 remains authoritative for parsing, exact coordinates,
+file eligibility, input budgets, semantic validation, and duplicate handling.
+The fake provider has no network access, API key, or environment configuration.
+Its synthetic findings are fixtures, not detected defects.
+
+A future hosted-provider adapter must treat raw response text or JSON as
+untrusted, enforce response byte and item limits, and parse it inside the adapter.
+Malformed output must not cross the adapter boundary. Only successfully parsed
+strict `FindingCandidate` domain objects may enter orchestration.
 
 ## Local prerequisites
 
@@ -80,6 +88,8 @@ Create `.env` locally from `.env.example`. The required variable names are:
 - `GITHUB_PRIVATE_KEY`
 - `REDIS_URL`
 
+No AI-provider API key is required or supported in this milestone.
+
 Never commit `.env`, a `.pem` private key, installation tokens, or webhook
 secret values.
 
@@ -97,7 +107,10 @@ Run the complete deterministic suite from the repository root:
   merge diffs are skipped with explicit reasons.
 - Oversized input is skipped at deterministic file or hunk boundaries; code is
   not silently truncated.
-- Finding validation exists, but no model currently generates findings.
-- Inline GitHub review comments are not implemented.
-- Future milestones may add a provider abstraction and structured analysis,
-  followed separately by inline-review delivery and production deployment.
+- The current provider is deterministic fake data; it does not detect real bugs.
+- Findings are validated and counted but their contents are not posted.
+- Inline GitHub review comments and review decisions are not implemented.
+- Provider failure degrades to a safe aggregate summary without retry or an
+  agent loop.
+- Future milestones may add a bounded hosted-provider adapter, followed
+  separately by inline-review delivery and production deployment.
